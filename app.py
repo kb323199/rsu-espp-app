@@ -230,8 +230,10 @@ def index():
                 shares_value = float(shares)
                 if shares_value <= 0:
                     raise ValueError("股數必須大於 0")
-                close_price, stock_date = fetch_yahoo_close_price(ticker, trade_date_obj)
-                usd_twd_rate, rate_source = fetch_usd_twd_rate("USDTWD=X", trade_date_obj)
+                # 台灣時間：使用前一個交易日收盤價
+                price_date = get_previous_trading_date(trade_date_obj)
+                close_price, stock_date = fetch_yahoo_close_price(ticker, price_date)
+                usd_twd_rate, rate_source = fetch_usd_twd_rate("USDTWD=X", price_date)
                 value_twd = round(close_price * shares_value * usd_twd_rate, 2)
                 value_usd = round(close_price * shares_value, 4)
                 ph = db_placeholder(9)
