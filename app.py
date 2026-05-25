@@ -210,8 +210,14 @@ def fetch_usd_twd_rate(symbol, target_date):
 
 
 def get_last_trading_day_before(d):
-    """取得指定日期當天或之前最近的交易日（跳過週六、週日）"""
+    """取得指定日期前一個交易日（若為週末則往前跳到週五再減一天到週四）"""
+    # 先跳到當天或之前的最近平日
     while d.weekday() >= 5:  # 5=週六, 6=週日
+        d -= timedelta(days=1)
+    # 再往前一天，確保是「之前」的交易日而非當天
+    d -= timedelta(days=1)
+    # 若往前一天又落在週末，繼續往前
+    while d.weekday() >= 5:
         d -= timedelta(days=1)
     return d
 
