@@ -13,7 +13,7 @@ from flask import Flask, g, redirect, render_template, request, url_for
 DATABASE_URL = os.environ.get("DATABASE_URL")  # Render PostgreSQL
 DATABASE_SQLITE = "entries.db"                 # 本機 SQLite fallback
 
-# Render 提供的 URL 開頭是 postgres://，psycopg2 需要 postgresql://
+# 這段邏輯會自動處理 Supabase 的連線字串格式
 if DATABASE_URL and DATABASE_URL.startswith("postgres://"):
     DATABASE_URL = DATABASE_URL.replace("postgres://", "postgresql://", 1)
 
