@@ -246,8 +246,8 @@ def get_last_trading_day_before(d):
 def get_espp_reference_dates(purchase_date):
     """
     根據 ESPP 認購日（1/31 或 7/31）回傳參考日期
-    - 1/31：參考當年 1/31 前一交易日 vs 前一年 8/1 前一交易日
-    - 7/31：參考當年 7/31 前一交易日 vs 前一年 2/1 前一交易日
+    - 1/31：參考A=當年 1/31 前一交易日，參考B=前一年 8/1 前一交易日
+    - 7/31：參考A=當年 7/31 前一交易日，參考B=當年 2/1 前一交易日
     回傳: (price_date_a, price_date_b, rate_date)
     """
     year = purchase_date.year
@@ -255,11 +255,11 @@ def get_espp_reference_dates(purchase_date):
 
     if month == 1:  # 1/31 認購
         price_date_a = get_prev_trading_day(date(year, 1, 31))
-        price_date_b = get_prev_trading_day(date(year - 1, 8, 1))
+        price_date_b = get_prev_trading_day(date(year - 1, 8, 1))  # 前一年 8/1
         rate_date = get_prev_trading_day(date(year, 1, 31))
     elif month == 7:  # 7/31 認購
         price_date_a = get_prev_trading_day(date(year, 7, 31))
-        price_date_b = get_prev_trading_day(date(year - 1, 2, 1))
+        price_date_b = get_prev_trading_day(date(year, 2, 1))      # 當年 2/1
         rate_date = get_prev_trading_day(date(year, 7, 31))
     else:
         raise ValueError("ESPP 認購日只能是 1/31 或 7/31")
