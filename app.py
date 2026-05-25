@@ -38,8 +38,12 @@ def get_db():
     db = getattr(g, "db", None)
     if db is None:
         if USE_POSTGRES:
-            db = psycopg2.connect(DATABASE_URL)
-            g.db = db
+            try:
+                db = psycopg2.connect(DATABASE_URL)
+                g.db = db
+            except Exception as e:
+                print(f"[ERROR] 無法連線到 PostgreSQL 資料庫: {e}")
+                raise
         else:
             db = sqlite3.connect(DATABASE_SQLITE)
             db.row_factory = sqlite3.Row
@@ -161,10 +165,10 @@ def get_current_user():
     if not rows:
         return None
     r = rows[0]
-    if USE_POSTGRES:
-        return {"id": r["id"], "username": r["username"]}
-    else:
-        return {"id": r["id"], "username": r["username"]}
+    # Ensure consistent key access for both psycopg2 (dict-like) and sqlite3.Row (index-based)
+    user_id = r['id'] if isinstance(r, dict) else r[0]
+    username = r['username'] if isinstance(r, dict) else r[1]
+    return {"id": user_id, "username": username}
 
 
 def login_required(fn):
@@ -593,9 +597,10 @@ def register():
         pw_hash = generate_password_hash(password)
         ph = db_placeholder(3)
         db_execute(f"INSERT INTO users (username, password_hash, created_at) VALUES ({ph})", (username, pw_hash, datetime.now().isoformat(timespec="seconds")))
-        user = db_fetchall("SELECT id, username FROM users WHERE username = %s" % ("%s" if USE_POSTGRES else "?"), (username,))
-        if user:
-            session["user_id"] = user[0]["id"]
+        # 再次查詢用戶，並獲取 id
+        user_row = db_fetchall("SELECT id, username FROM users WHERE username = %s" % ("%s" if USE_POSTGRES else "?"), (username,))
+        if user_row:
+            session["user_id"] = user_row[0]["id"]
             return redirect(url_for("index"))
         flash("註冊失敗，請稍後再試。", "error")
     return render_template("register.html")
