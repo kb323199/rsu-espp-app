@@ -5,23 +5,40 @@ import sqlite3
 import urllib.error
 import urllib.parse
 import urllib.request
-
 import os
 
 from flask import Flask, g, redirect, render_template, request, url_for
 
-DATABASE = "entries.db"
+# ── 資料庫設定 ──────────────────────────────────────────────
+DATABASE_URL = os.environ.get("DATABASE_URL")  # Render PostgreSQL
+DATABASE_SQLITE = "entries.db"                 # 本機 SQLite fallback
+
+# Render 提供的 URL 開頭是 postgres://，psycopg2 需要 postgresql://
+if DATABASE_URL and DATABASE_URL.startswith("postgres://"):
+    DATABASE_URL = DATABASE_URL.replace("postgres://", "postgresql://", 1)
+
+USE_POSTGRES = bool(DATABASE_URL)
+
+if USE_POSTGRES:
+    import psycopg2
+    import psycopg2.extras
+
 app = Flask(__name__)
 
 VALID_TICKER_RE = re.compile(r"^[A-Za-z0-9\.\-]{1,10}$")
 
 
+# ── 資料庫連線 ───────────────────────────────────────────────
 def get_db():
     db = getattr(g, "db", None)
     if db is None:
-        db = sqlite3.connect(DATABASE)
-        db.row_factory = sqlite3.Row
-        g.db = db
+        if USE_POSTGRES:
+            db = psycopg2.connect(DATABASE_URL)
+            g.db = db
+        else:
+            db = sqlite3.connect(DATABASE_SQLITE)
+            db.row_factory = sqlite3.Row
+            g.db = db
     return db
 
 
@@ -34,31 +51,81 @@ def close_db(exc):
 
 def init_db():
     db = get_db()
-    db.execute(
-        """
-        CREATE TABLE IF NOT EXISTS entries (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            trade_date TEXT NOT NULL,
-            ticker TEXT NOT NULL,
-            shares REAL NOT NULL,
-            close_price REAL NOT NULL,
-            usd_twd REAL NOT NULL,
-            value_usd REAL,
-            value_twd REAL NOT NULL,
-            source TEXT NOT NULL,
-            created_at TEXT NOT NULL
+    if USE_POSTGRES:
+        with db.cursor() as cur:
+            cur.execute(
+                """
+                CREATE TABLE IF NOT EXISTS entries (
+                    id SERIAL PRIMARY KEY,
+                    trade_date TEXT NOT NULL,
+                    ticker TEXT NOT NULL,
+                    shares REAL NOT NULL,
+                    close_price REAL NOT NULL,
+                    usd_twd REAL NOT NULL,
+                    value_usd REAL,
+                    value_twd REAL NOT NULL,
+                    source TEXT NOT NULL,
+                    created_at TEXT NOT NULL
+                )
+                """
+            )
+        db.commit()
+    else:
+        db.execute(
+            """
+            CREATE TABLE IF NOT EXISTS entries (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                trade_date TEXT NOT NULL,
+                ticker TEXT NOT NULL,
+                shares REAL NOT NULL,
+                close_price REAL NOT NULL,
+                usd_twd REAL NOT NULL,
+                value_usd REAL,
+                value_twd REAL NOT NULL,
+                source TEXT NOT NULL,
+                created_at TEXT NOT NULL
+            )
+            """
         )
-        """
-    )
-    # Ensure `value_usd` column exists for older databases
-    cur = db.execute("PRAGMA table_info(entries)")
-    cols = [r[1] for r in cur.fetchall()]
-    if "value_usd" not in cols:
-        try:
-            db.execute("ALTER TABLE entries ADD COLUMN value_usd REAL")
-        except Exception:
-            pass
-    db.commit()
+        cur = db.execute("PRAGMA table_info(entries)")
+        cols = [r[1] for r in cur.fetchall()]
+        if "value_usd" not in cols:
+            try:
+                db.execute("ALTER TABLE entries ADD COLUMN value_usd REAL")
+            except Exception:
+                pass
+        db.commit()
+
+
+# ── 共用查詢輔助函式 ─────────────────────────────────────────
+def db_fetchall(query, params=()):
+    db = get_db()
+    if USE_POSTGRES:
+        with db.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+            cur.execute(query, params)
+            return cur.fetchall()
+    else:
+        return db.execute(query, params).fetchall()
+
+
+def db_execute(query, params=()):
+    db = get_db()
+    if USE_POSTGRES:
+        with db.cursor() as cur:
+            cur.execute(query, params)
+        db.commit()
+    else:
+        db.execute(query, params)
+        db.commit()
+
+
+def db_placeholder(n):
+    """回傳對應數量的佔位符，PostgreSQL 用 %s，SQLite 用 ?"""
+    ph = "%s" if USE_POSTGRES else "?"
+    return ", ".join([ph] * n)
+
+
+# ── 原有功能函式（不變）──────────────────────────────────────
 
 
 def parse_date(value):
@@ -133,6 +200,7 @@ def fetch_usd_twd_rate(symbol, target_date):
     return price, "Yahoo 匯率"
 
 
+# ── 路由 ─────────────────────────────────────────────────────
 @app.route("/", methods=["GET", "POST"])
 def index():
     init_db()
@@ -157,10 +225,10 @@ def index():
                 close_price, stock_date = fetch_yahoo_close_price(ticker, trade_date_obj)
                 usd_twd_rate, rate_source = fetch_usd_twd_rate("USDTWD=X", trade_date_obj)
                 value_twd = round(close_price * shares_value * usd_twd_rate, 2)
-                db = get_db()
                 value_usd = round(close_price * shares_value, 4)
-                db.execute(
-                    "INSERT INTO entries (trade_date, ticker, shares, close_price, usd_twd, value_usd, value_twd, source, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                ph = db_placeholder(9)
+                db_execute(
+                    f"INSERT INTO entries (trade_date, ticker, shares, close_price, usd_twd, value_usd, value_twd, source, created_at) VALUES ({ph})",
                     (
                         trade_date_obj.isoformat(),
                         ticker,
@@ -173,16 +241,15 @@ def index():
                         datetime.now().isoformat(timespec="seconds"),
                     ),
                 )
-                db.commit()
                 message = f"已新增 {ticker} 的計算結果，總價值 {value_twd:,} TWD。"
             except Exception as exc:
                 error = str(exc)
-    db = get_db()
-    rows_raw = db.execute("SELECT * FROM entries ORDER BY id DESC").fetchall()
+
+    rows_raw = db_fetchall("SELECT * FROM entries ORDER BY id DESC")
     processed_rows = []
     for row in rows_raw:
         value_twd = float(row["value_twd"]) if row["value_twd"] is not None else 0.0
-        value_usd = float(row["value_usd"]) if ("value_usd" in row.keys() and row["value_usd"] is not None) else value_twd / float(row["usd_twd"]) if row["usd_twd"] else 0.0
+        value_usd = float(row["value_usd"]) if row["value_usd"] is not None else (value_twd / float(row["usd_twd"]) if row["usd_twd"] else 0.0)
         processed_rows.append(
             {
                 "id": row["id"],
@@ -191,14 +258,14 @@ def index():
                 "shares": row["shares"],
                 "close_price": row["close_price"],
                 "usd_twd": row["usd_twd"],
-                "value_twd": row["value_twd"],
+                "value_twd": value_twd,
                 "value_usd": value_usd,
                 "source": row["source"],
                 "value_formatted": f"{value_twd:,.2f}",
                 "value_usd_formatted": f"{value_usd:,.2f}",
             }
         )
-    total = sum(r["value_twd"] for r in rows_raw) if rows_raw else 0.0
+    total = sum(r["value_twd"] for r in processed_rows) if processed_rows else 0.0
     total_formatted = f"{total:,.2f}"
     return render_template(
         "index.html",
@@ -214,19 +281,21 @@ def index():
 def clear_entries():
     init_db()
     db = get_db()
-    # Drop and recreate the table to guarantee AUTOINCREMENT resets to 1
-    try:
-        db.execute("DROP TABLE IF EXISTS entries")
+    if USE_POSTGRES:
+        with db.cursor() as cur:
+            cur.execute("TRUNCATE TABLE entries RESTART IDENTITY")
         db.commit()
-    except Exception:
-        db.rollback()
-    # Recreate table schema
-    init_db()
+    else:
+        try:
+            db.execute("DROP TABLE IF EXISTS entries")
+            db.commit()
+        except Exception:
+            db.rollback()
+        init_db()
     return redirect(url_for("index"))
 
 
 if __name__ == "__main__":
-    # Initialize the database within an application context so `g` is available
     with app.app_context():
         init_db()
     port = int(os.environ.get("PORT", 5000))
