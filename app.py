@@ -600,7 +600,9 @@ def register():
         # 再次查詢用戶，並獲取 id
         user_row = db_fetchall("SELECT id, username FROM users WHERE username = %s" % ("%s" if USE_POSTGRES else "?"), (username,))
         if user_row:
-            session["user_id"] = user_row[0]["id"]
+            # 從結果中獲取 id，兼容 psycopg2.extras.RealDictCursor 和 sqlite3.Row
+            user_id = user_row[0]["id"] if USE_POSTGRES else user_row[0][0]
+            session["user_id"] = user_id
             return redirect(url_for("index"))
         flash("註冊失敗，請稍後再試。", "error")
     return render_template("register.html")
@@ -619,7 +621,7 @@ def login():
         if not row:
             flash("使用者不存在。", "error")
             return render_template("login.html", next=next_url)
-        user_id = row[0]["id"]
+        user_id = row[0]["id"] if USE_POSTGRES else row[0][0]
         pw_hash = row[0]["password_hash"]
         if not check_password_hash(pw_hash, password):
             flash("密碼錯誤。", "error")
