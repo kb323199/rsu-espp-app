@@ -1,25 +1,45 @@
 from datetime import date, timedelta
 
-def get_last_trading_day_before(d):
-    while d.weekday() >= 5:
+def get_prev_trading_day(d):
+    wd = d.weekday()
+    if wd == 5:    # 週六
+        d -= timedelta(days=2)
+    elif wd == 6:  # 週日
+        d -= timedelta(days=3)
+    else:          # 週一~週五
         d -= timedelta(days=1)
-    d -= timedelta(days=1)
     while d.weekday() >= 5:
         d -= timedelta(days=1)
     return d
 
-# 2026/1/31 是週六 → 預期往前2天 → 1/29 週四
-d = date(2026, 1, 31)
-print(f"{d} 是 {['一','二','三','四','五','六','日'][d.weekday()]}，參考日 → {get_last_trading_day_before(d)}")
+days = ['一','二','三','四','五','六','日']
 
-# 2027/1/31 是週日 → 預期往前3天 → 1/28 週四
-d = date(2027, 1, 31)
-print(f"{d} 是 {['一','二','三','四','五','六','日'][d.weekday()]}，參考日 → {get_last_trading_day_before(d)}")
-
-# 2025/1/31 是週五 → 預期往前1天 → 1/30 週四
+print("=== 1/31 認購日測試 ===")
+# 2025/1/31 週四 → 參考日往前1天 → 1/30 週三
 d = date(2025, 1, 31)
-print(f"{d} 是 {['一','二','三','四','五','六','日'][d.weekday()]}，參考日 → {get_last_trading_day_before(d)}")
+print(f"1/31: {d} 是週{days[d.weekday()]}，參考日A → {get_prev_trading_day(d)}")
+# 前一年 8/1: 2024/8/1 週四 → 往前1天 → 7/31 週三
+d2 = date(2024, 8, 1)
+print(f"8/1:  {d2} 是週{days[d2.weekday()]}，參考日B → {get_prev_trading_day(d2)}")
 
-# 2025/7/31 是週四 → 預期往前1天 → 7/30 週三
+print()
+# 2026/1/31 週六 → 往前2天 → 1/29 週四
+d = date(2026, 1, 31)
+print(f"1/31: {d} 是週{days[d.weekday()]}，參考日A → {get_prev_trading_day(d)}")
+# 前一年 8/1: 2025/8/1 週五 → 往前1天 → 7/31 週四
+d2 = date(2025, 8, 1)
+print(f"8/1:  {d2} 是週{days[d2.weekday()]}，參考日B → {get_prev_trading_day(d2)}")
+
+print()
+# 2027/1/31 週日 → 往前3天 → 1/28 週四
+d = date(2027, 1, 31)
+print(f"1/31: {d} 是週{days[d.weekday()]}，參考日A → {get_prev_trading_day(d)}")
+
+print()
+print("=== 7/31 認購日測試 ===")
+# 2025/7/31 週四 → 往前1天 → 7/30 週三
 d = date(2025, 7, 31)
-print(f"{d} 是 {['一','二','三','四','五','六','日'][d.weekday()]}，參考日 → {get_last_trading_day_before(d)}")
+print(f"7/31: {d} 是週{days[d.weekday()]}，參考日A → {get_prev_trading_day(d)}")
+# 前一年 2/1: 2024/2/1 週四 → 往前1天 → 1/31 週三
+d2 = date(2024, 2, 1)
+print(f"2/1:  {d2} 是週{days[d2.weekday()]}，參考日B → {get_prev_trading_day(d2)}")

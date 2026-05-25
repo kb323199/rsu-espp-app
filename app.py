@@ -199,6 +199,27 @@ def get_previous_trading_date(target_date):
     return prev
 
 
+def get_prev_trading_day(d):
+    """
+    取得指定日期的前一個交易日：
+    - 平日(週一~週五) → 往前1天
+    - 週六 → 往前2天
+    - 週日 → 往前3天
+    結果若仍為週末則繼續往前（保險用）
+    """
+    wd = d.weekday()
+    if wd == 5:    # 週六
+        d -= timedelta(days=2)
+    elif wd == 6:  # 週日
+        d -= timedelta(days=3)
+    else:          # 週一~週五
+        d -= timedelta(days=1)
+    # 保險：若結果仍為週末繼續往前
+    while d.weekday() >= 5:
+        d -= timedelta(days=1)
+    return d
+
+
 def fetch_usd_twd_rate(symbol, target_date):
     if target_date == date.today():
         try:
@@ -224,21 +245,22 @@ def get_last_trading_day_before(d):
 
 def get_espp_reference_dates(purchase_date):
     """
-    根據 ESPP 認購日（1/31 或 7/31）回傳需要的參考日期
-    若參考日為週末則自動往前取最近交易日
+    根據 ESPP 認購日（1/31 或 7/31）回傳參考日期
+    - 1/31：參考當年 1/31 前一交易日 vs 前一年 8/1 前一交易日
+    - 7/31：參考當年 7/31 前一交易日 vs 前一年 2/1 前一交易日
     回傳: (price_date_a, price_date_b, rate_date)
     """
     year = purchase_date.year
     month = purchase_date.month
 
     if month == 1:  # 1/31 認購
-        price_date_a = get_last_trading_day_before(date(year, 1, 31))
-        price_date_b = get_last_trading_day_before(date(year - 1, 7, 31))
-        rate_date = get_last_trading_day_before(date(year, 1, 31))
+        price_date_a = get_prev_trading_day(date(year, 1, 31))
+        price_date_b = get_prev_trading_day(date(year - 1, 8, 1))
+        rate_date = get_prev_trading_day(date(year, 1, 31))
     elif month == 7:  # 7/31 認購
-        price_date_a = get_last_trading_day_before(date(year, 7, 31))
-        price_date_b = get_last_trading_day_before(date(year - 1, 1, 31))
-        rate_date = get_last_trading_day_before(date(year, 7, 31))
+        price_date_a = get_prev_trading_day(date(year, 7, 31))
+        price_date_b = get_prev_trading_day(date(year - 1, 2, 1))
+        rate_date = get_prev_trading_day(date(year, 7, 31))
     else:
         raise ValueError("ESPP 認購日只能是 1/31 或 7/31")
 
