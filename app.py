@@ -209,22 +209,30 @@ def fetch_usd_twd_rate(symbol, target_date):
     return price, "Yahoo 匯率"
 
 
+def get_last_trading_day_before(d):
+    """取得指定日期當天或之前最近的交易日（跳過週六、週日）"""
+    while d.weekday() >= 5:  # 5=週六, 6=週日
+        d -= timedelta(days=1)
+    return d
+
+
 def get_espp_reference_dates(purchase_date):
     """
     根據 ESPP 認購日（1/31 或 7/31）回傳需要的參考日期
+    若參考日為週末則自動往前取最近交易日
     回傳: (price_date_a, price_date_b, rate_date)
     """
     year = purchase_date.year
     month = purchase_date.month
 
     if month == 1:  # 1/31 認購
-        price_date_a = date(year, 1, 30)          # 當年 1/30
-        price_date_b = date(year - 1, 7, 31)      # 前年 7/31
-        rate_date = date(year, 1, 31)              # 匯率參考 1/31
+        price_date_a = get_last_trading_day_before(date(year, 1, 31))
+        price_date_b = get_last_trading_day_before(date(year - 1, 7, 31))
+        rate_date = get_last_trading_day_before(date(year, 1, 31))
     elif month == 7:  # 7/31 認購
-        price_date_a = date(year, 7, 30)           # 當年 7/30
-        price_date_b = date(year - 1, 1, 31)       # 前年 1/31
-        rate_date = date(year, 7, 31)              # 匯率參考 7/31
+        price_date_a = get_last_trading_day_before(date(year, 7, 31))
+        price_date_b = get_last_trading_day_before(date(year - 1, 1, 31))
+        rate_date = get_last_trading_day_before(date(year, 7, 31))
     else:
         raise ValueError("ESPP 認購日只能是 1/31 或 7/31")
 
