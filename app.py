@@ -209,51 +209,143 @@ def fetch_usd_twd_rate(symbol, target_date):
     return price, "Yahoo 匯率"
 
 
+def get_espp_reference_dates(purchase_date):
+    """
+    根據 ESPP 認購日（1/31 或 7/31）回傳需要的參考日期
+    回傳: (price_date_a, price_date_b, rate_date)
+    """
+    year = purchase_date.year
+    month = purchase_date.month
+
+    if month == 1:  # 1/31 認購
+        price_date_a = date(year, 1, 30)          # 當年 1/30
+        price_date_b = date(year - 1, 7, 31)      # 前年 7/31
+        rate_date = date(year, 1, 31)              # 匯率參考 1/31
+    elif month == 7:  # 7/31 認購
+        price_date_a = date(year, 7, 30)           # 當年 7/30
+        price_date_b = date(year - 1, 1, 31)       # 前年 1/31
+        rate_date = date(year, 7, 31)              # 匯率參考 7/31
+    else:
+        raise ValueError("ESPP 認購日只能是 1/31 或 7/31")
+
+    return price_date_a, price_date_b, rate_date
+
+
 # ── 路由 ─────────────────────────────────────────────────────
 @app.route("/", methods=["GET", "POST"])
 def index():
-    error = None
-    message = None
+    rsu_error = None
+    rsu_message = None
+    espp_error = None
+    espp_message = None
+    espp_result = None
+    active_tab = request.form.get("active_tab", "rsu")  # 記住目前 tab
+
     if request.method == "POST":
-        trade_date = request.form.get("trade_date", "").strip()
-        ticker = request.form.get("ticker", "").strip().upper()
-        shares = request.form.get("shares", "").strip()
-        if not trade_date or not ticker or not shares:
-            error = "請填寫完整的日期、美股代號與股數。"
-        elif not VALID_TICKER_RE.match(ticker):
-            error = "股票代號格式不正確。"
-        else:
-            try:
-                trade_date_obj = parse_date(trade_date)
-                if trade_date_obj > date.today():
-                    raise ValueError("日期錯誤：不能選擇未來日期")
-                shares_value = float(shares)
-                if shares_value <= 0:
-                    raise ValueError("股數必須大於 0")
-                # 台灣時間：使用前一個交易日收盤價
-                price_date = get_previous_trading_date(trade_date_obj)
-                close_price, stock_date = fetch_yahoo_close_price(ticker, price_date)
-                usd_twd_rate, rate_source = fetch_usd_twd_rate("USDTWD=X", price_date)
-                value_twd = round(close_price * shares_value * usd_twd_rate, 2)
-                value_usd = round(close_price * shares_value, 4)
-                ph = db_placeholder(9)
-                db_execute(
-                    f"INSERT INTO entries (trade_date, ticker, shares, close_price, usd_twd, value_usd, value_twd, source, created_at) VALUES ({ph})",
-                    (
-                        trade_date_obj.isoformat(),
-                        ticker,
-                        shares_value,
-                        round(close_price, 4),
-                        round(usd_twd_rate, 4),
-                        value_usd,
-                        value_twd,
-                        f"股票 {ticker}({stock_date}) / 匯率 {rate_source}",
-                        datetime.now().isoformat(timespec="seconds"),
-                    ),
-                )
-                message = f"已新增 {ticker} 的計算結果，總價值 {value_twd:,} TWD。"
-            except Exception as exc:
-                error = str(exc)
+        form_type = request.form.get("form_type", "rsu")
+        active_tab = form_type
+
+        if form_type == "rsu":
+            trade_date = request.form.get("trade_date", "").strip()
+            ticker = request.form.get("ticker", "").strip().upper()
+            shares = request.form.get("shares", "").strip()
+            if not trade_date or not ticker or not shares:
+                rsu_error = "請填寫完整的日期、美股代號與股數。"
+            elif not VALID_TICKER_RE.match(ticker):
+                rsu_error = "股票代號格式不正確。"
+            else:
+                try:
+                    trade_date_obj = parse_date(trade_date)
+                    if trade_date_obj > date.today():
+                        raise ValueError("日期錯誤：不能選擇未來日期")
+                    shares_value = float(shares)
+                    if shares_value <= 0:
+                        raise ValueError("股數必須大於 0")
+                    price_date = get_previous_trading_date(trade_date_obj)
+                    close_price, stock_date = fetch_yahoo_close_price(ticker, price_date)
+                    usd_twd_rate, rate_source = fetch_usd_twd_rate("USDTWD=X", price_date)
+                    value_twd = round(close_price * shares_value * usd_twd_rate, 2)
+                    value_usd = round(close_price * shares_value, 4)
+                    ph = db_placeholder(9)
+                    db_execute(
+                        f"INSERT INTO entries (trade_date, ticker, shares, close_price, usd_twd, value_usd, value_twd, source, created_at) VALUES ({ph})",
+                        (
+                            trade_date_obj.isoformat(),
+                            ticker,
+                            shares_value,
+                            round(close_price, 4),
+                            round(usd_twd_rate, 4),
+                            value_usd,
+                            value_twd,
+                            f"RSU 股票 {ticker}({stock_date}) / 匯率 {rate_source}",
+                            datetime.now().isoformat(timespec="seconds"),
+                        ),
+                    )
+                    rsu_message = f"已新增 {ticker} 的計算結果，總價值 {value_twd:,} TWD。"
+                except Exception as exc:
+                    rsu_error = str(exc)
+
+        elif form_type == "espp":
+            purchase_date_str = request.form.get("purchase_date", "").strip()
+            ticker = request.form.get("ticker", "").strip().upper()
+            shares = request.form.get("shares", "").strip()
+            if not purchase_date_str or not ticker or not shares:
+                espp_error = "請填寫完整的認購日期、美股代號與股數。"
+            elif not VALID_TICKER_RE.match(ticker):
+                espp_error = "股票代號格式不正確。"
+            else:
+                try:
+                    purchase_date = parse_date(purchase_date_str)
+                    if purchase_date.day != 31 or purchase_date.month not in (1, 7):
+                        raise ValueError("ESPP 認購日必須是 1/31 或 7/31")
+                    shares_value = float(shares)
+                    if shares_value <= 0:
+                        raise ValueError("股數必須大於 0")
+                    price_date_a, price_date_b, rate_date = get_espp_reference_dates(purchase_date)
+                    price_a, actual_date_a = fetch_yahoo_close_price(ticker, price_date_a)
+                    price_b, actual_date_b = fetch_yahoo_close_price(ticker, price_date_b)
+                    cost_price = round(min(price_a, price_b) * 0.85, 4)
+                    income_price = round(max(price_a, price_b), 4)
+                    usd_twd_rate, rate_source = fetch_usd_twd_rate("USDTWD=X", rate_date)
+                    gain_per_share = round(income_price - cost_price, 4)
+                    value_usd = round(gain_per_share * shares_value, 4)
+                    value_twd = round(value_usd * usd_twd_rate, 2)
+                    espp_result = {
+                        "ticker": ticker,
+                        "purchase_date": purchase_date_str,
+                        "price_date_a": actual_date_a.isoformat(),
+                        "price_date_b": actual_date_b.isoformat(),
+                        "price_a": price_a,
+                        "price_b": price_b,
+                        "cost_price": cost_price,
+                        "income_price": income_price,
+                        "gain_per_share": gain_per_share,
+                        "shares": shares_value,
+                        "usd_twd_rate": usd_twd_rate,
+                        "rate_source": rate_source,
+                        "value_usd": value_usd,
+                        "value_twd": value_twd,
+                        "value_usd_formatted": f"{value_usd:,.2f}",
+                        "value_twd_formatted": f"{value_twd:,.2f}",
+                    }
+                    ph = db_placeholder(9)
+                    db_execute(
+                        f"INSERT INTO entries (trade_date, ticker, shares, close_price, usd_twd, value_usd, value_twd, source, created_at) VALUES ({ph})",
+                        (
+                            purchase_date_str,
+                            ticker,
+                            shares_value,
+                            income_price,
+                            round(usd_twd_rate, 4),
+                            value_usd,
+                            value_twd,
+                            f"ESPP {ticker} 所得價{income_price}({actual_date_a}) / 成本價{cost_price}({actual_date_b}) / 匯率 {rate_source}",
+                            datetime.now().isoformat(timespec="seconds"),
+                        ),
+                    )
+                    espp_message = f"ESPP 計算完成，所得價值 {value_twd:,.2f} TWD。"
+                except Exception as exc:
+                    espp_error = str(exc)
 
     rows_raw = db_fetchall("SELECT * FROM entries ORDER BY id DESC")
     processed_rows = []
@@ -282,9 +374,98 @@ def index():
         rows=processed_rows,
         total=round(total, 2),
         total_formatted=total_formatted,
-        error=error,
-        message=message,
+        active_tab=active_tab,
+        rsu_error=rsu_error,
+        rsu_message=rsu_message,
+        espp_error=espp_error,
+        espp_message=espp_message,
+        espp_result=espp_result,
     )
+
+
+@app.route("/espp", methods=["GET", "POST"])
+def espp():
+    error = None
+    message = None
+    result = None
+
+    if request.method == "POST":
+        purchase_date_str = request.form.get("purchase_date", "").strip()
+        ticker = request.form.get("ticker", "").strip().upper()
+        shares = request.form.get("shares", "").strip()
+
+        if not purchase_date_str or not ticker or not shares:
+            error = "請填寫完整的認購日期、美股代號與股數。"
+        elif not VALID_TICKER_RE.match(ticker):
+            error = "股票代號格式不正確。"
+        else:
+            try:
+                purchase_date = parse_date(purchase_date_str)
+                if purchase_date.day not in (31,) or purchase_date.month not in (1, 7):
+                    raise ValueError("ESPP 認購日必須是 1/31 或 7/31")
+                shares_value = float(shares)
+                if shares_value <= 0:
+                    raise ValueError("股數必須大於 0")
+
+                price_date_a, price_date_b, rate_date = get_espp_reference_dates(purchase_date)
+
+                # 抓兩個參考日的股價
+                price_a, actual_date_a = fetch_yahoo_close_price(ticker, price_date_a)
+                price_b, actual_date_b = fetch_yahoo_close_price(ticker, price_date_b)
+
+                # 計算成本價與所得價
+                cost_price = round(min(price_a, price_b) * 0.85, 4)   # 較低價 × 85%
+                income_price = round(max(price_a, price_b), 4)         # 較高價
+
+                # 抓匯率（認購日當日）
+                usd_twd_rate, rate_source = fetch_usd_twd_rate("USDTWD=X", rate_date)
+
+                # 計算價值
+                gain_per_share = round(income_price - cost_price, 4)
+                value_usd = round(gain_per_share * shares_value, 4)
+                value_twd = round(value_usd * usd_twd_rate, 2)
+
+                result = {
+                    "ticker": ticker,
+                    "purchase_date": purchase_date_str,
+                    "price_date_a": actual_date_a.isoformat(),
+                    "price_date_b": actual_date_b.isoformat(),
+                    "price_a": price_a,
+                    "price_b": price_b,
+                    "cost_price": cost_price,
+                    "income_price": income_price,
+                    "gain_per_share": gain_per_share,
+                    "shares": shares_value,
+                    "usd_twd_rate": usd_twd_rate,
+                    "rate_source": rate_source,
+                    "value_usd": value_usd,
+                    "value_twd": value_twd,
+                    "value_usd_formatted": f"{value_usd:,.2f}",
+                    "value_twd_formatted": f"{value_twd:,.2f}",
+                }
+
+                # 儲存到資料庫
+                ph = db_placeholder(9)
+                db_execute(
+                    f"INSERT INTO entries (trade_date, ticker, shares, close_price, usd_twd, value_usd, value_twd, source, created_at) VALUES ({ph})",
+                    (
+                        purchase_date_str,
+                        ticker,
+                        shares_value,
+                        income_price,
+                        round(usd_twd_rate, 4),
+                        value_usd,
+                        value_twd,
+                        f"ESPP {ticker} 所得價{income_price}({actual_date_a}) / 成本價{cost_price}({actual_date_b}) / 匯率 {rate_source}",
+                        datetime.now().isoformat(timespec="seconds"),
+                    ),
+                )
+                message = f"ESPP 計算完成，所得價值 {value_twd:,.2f} TWD。"
+
+            except Exception as exc:
+                error = str(exc)
+
+    return render_template("espp.html", error=error, message=message, result=result)
 
 
 @app.route("/clear", methods=["POST"])

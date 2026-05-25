@@ -10,7 +10,7 @@
         .card { background: #fff; border-radius: 14px; box-shadow: 0 12px 30px rgba(15, 23, 42, .08); padding: 24px; margin-bottom: 24px; }
         h1, h2 { margin-top: 0; }
         label { display: block; margin-bottom: 8px; font-weight: 600; }
-        input, select { width: 100%; padding: 10px 12px; border: 1px solid #d1d5db; border-radius: 8px; margin-bottom: 16px; font-size: 16px; }
+        input, select { width: 100%; padding: 10px 12px; border: 1px solid #d1d5db; border-radius: 8px; margin-bottom: 16px; font-size: 16px; box-sizing: border-box; }
         button { border: none; background: #2563eb; color: #fff; padding: 12px 18px; border-radius: 10px; cursor: pointer; font-size: 16px; }
         button.secondary { background: #6b7280; }
         table { width: 100%; border-collapse: collapse; margin-top: 16px; }
@@ -22,38 +22,103 @@
         .alert.success { background: #dcfce7; color: #166534; }
         .note { color: #4b5563; font-size: 14px; }
         .footer { font-size: 14px; color: #6b7280; margin-top: 16px; }
+        /* Tab 樣式 */
+        .nav-tabs { display: flex; gap: 0; margin-bottom: 0; border-bottom: 2px solid #2563eb; }
+        .nav-tab { padding: 12px 32px; font-size: 16px; font-weight: 600; cursor: pointer; border: none; background: #e0e7ff; color: #2563eb; border-radius: 10px 10px 0 0; margin-right: 4px; transition: background 0.2s; }
+        .nav-tab.active { background: #2563eb; color: #fff; }
+        .nav-tab:hover:not(.active) { background: #c7d2fe; }
+        .tab-content { display: none; }
+        .tab-content.active { display: block; }
+        /* ESPP 結果表 */
+        .result-table { width: 100%; border-collapse: collapse; margin-top: 16px; }
+        .result-table th, .result-table td { padding: 12px 10px; text-align: left; border-bottom: 1px solid #e5e7eb; }
+        .result-table th { background: #f9fafb; width: 40%; }
+        .highlight { font-size: 1.2em; font-weight: bold; color: #2563eb; }
     </style>
 </head>
 <body>
 <div class="container">
-    <div class="card">
-        <h1>RSU / ESPP 估值計算器</h1>
-        <p class="note">輸入授予日期、台灣銀行匯率或歷史匯率估值。系統會抓取美股收盤價與美金/台幣匯率，並記錄每筆資料。</p>
 
-        {% if error %}
-            <div class="alert error">{{ error }}</div>
+    <div class="card" style="padding-bottom: 0;">
+        <h1 style="margin-bottom: 4px;">RSU / ESPP 估值計算器</h1>
+        <p class="note" style="margin-bottom: 16px;">系統會抓取美股收盤價與美金/台幣匯率，並記錄每筆資料。</p>
+
+        <!-- Tab 按鈕 -->
+        <div class="nav-tabs">
+            <button class="nav-tab {% if active_tab == 'rsu' %}active{% endif %}" onclick="switchTab('rsu')">RSU 計算</button>
+            <button class="nav-tab {% if active_tab == 'espp' %}active{% endif %}" onclick="switchTab('espp')">ESPP 計算</button>
+        </div>
+    </div>
+
+    <!-- RSU Tab 內容 -->
+    <div id="tab-rsu" class="card tab-content {% if active_tab == 'rsu' %}active{% endif %}" style="border-radius: 0 14px 14px 14px; margin-top: 0;">
+        <p class="note">輸入授予日期（系統自動取前一交易日收盤價）、美股代號與股數。</p>
+
+        {% if rsu_error %}
+            <div class="alert error">{{ rsu_error }}</div>
         {% endif %}
-        {% if message %}
-            <div class="alert success">{{ message }}</div>
+        {% if rsu_message %}
+            <div class="alert success">{{ rsu_message }}</div>
         {% endif %}
 
         <form method="post">
-            <label for="trade_date">日期 (yyyy-mm-dd)</label>
+            <input type="hidden" name="form_type" value="rsu" />
+            <label for="trade_date">授予日期 (yyyy-mm-dd)</label>
             <input id="trade_date" name="trade_date" type="date" required />
-
-            <label for="ticker">美股代號</label>
-            <input id="ticker" name="ticker" type="text" placeholder="例如 AAPL" required />
-
-            <label for="shares">股數</label>
-            <input id="shares" name="shares" type="number" step="0.01" placeholder="輸入股數，例如 100" required />
-
+            <label for="rsu_ticker">美股代號</label>
+            <input id="rsu_ticker" name="ticker" type="text" placeholder="例如 MU" required />
+            <label for="rsu_shares">股數</label>
+            <input id="rsu_shares" name="shares" type="number" step="0.01" placeholder="例如 100" required />
             <button type="submit">計算並儲存</button>
         </form>
     </div>
 
+    <!-- ESPP Tab 內容 -->
+    <div id="tab-espp" class="card tab-content {% if active_tab == 'espp' %}active{% endif %}" style="border-radius: 0 14px 14px 14px; margin-top: 0;">
+        <p class="note">輸入 ESPP 認購日（僅限 <strong>1/31</strong> 或 <strong>7/31</strong>）、美股代號與股數。<br/>
+        系統自動取兩個參考日收盤價，較低價×85% 為成本，較高價為所得。</p>
+
+        {% if espp_error %}
+            <div class="alert error">{{ espp_error }}</div>
+        {% endif %}
+        {% if espp_message %}
+            <div class="alert success">{{ espp_message }}</div>
+        {% endif %}
+
+        <form method="post">
+            <input type="hidden" name="form_type" value="espp" />
+            <label for="purchase_date">ESPP 認購日（1/31 或 7/31）</label>
+            <input id="purchase_date" name="purchase_date" type="date" required />
+            <label for="espp_ticker">美股代號</label>
+            <input id="espp_ticker" name="ticker" type="text" placeholder="例如 MU" required />
+            <label for="espp_shares">股數</label>
+            <input id="espp_shares" name="shares" type="number" step="0.01" placeholder="例如 100" required />
+            <button type="submit">計算並儲存</button>
+        </form>
+
+        {% if espp_result %}
+        <hr style="margin: 24px 0; border: none; border-top: 1px solid #e5e7eb;" />
+        <h2>計算結果</h2>
+        <table class="result-table">
+            <tr><th>股票代號</th><td>{{ espp_result.ticker }}</td></tr>
+            <tr><th>認購日</th><td>{{ espp_result.purchase_date }}</td></tr>
+            <tr><th>參考價格 A（{{ espp_result.price_date_a }}）</th><td>USD {{ espp_result.price_a }}</td></tr>
+            <tr><th>參考價格 B（{{ espp_result.price_date_b }}）</th><td>USD {{ espp_result.price_b }}</td></tr>
+            <tr><th>成本價（較低價 × 85%）</th><td>USD {{ espp_result.cost_price }}</td></tr>
+            <tr><th>所得價（較高價）</th><td>USD {{ espp_result.income_price }}</td></tr>
+            <tr><th>每股所得</th><td>USD {{ espp_result.gain_per_share }}</td></tr>
+            <tr><th>股數</th><td>{{ espp_result.shares }}</td></tr>
+            <tr><th>匯率（{{ espp_result.rate_source }}）</th><td>{{ espp_result.usd_twd_rate }}</td></tr>
+            <tr><th>所得價值（USD）</th><td class="highlight">{{ espp_result.value_usd_formatted }}</td></tr>
+            <tr><th>所得價值（TWD）</th><td class="highlight">{{ espp_result.value_twd_formatted }}</td></tr>
+        </table>
+        {% endif %}
+    </div>
+
+    <!-- 儲存紀錄 -->
     <div class="card">
         <h2>儲存紀錄</h2>
-        <p class="note">總金額會依每筆資料匯總顯示。</p>
+        <p class="note">RSU 與 ESPP 的計算結果統一顯示於此。</p>
         <div class="text-right"><strong>總計：{{ total_formatted }} TWD</strong></div>
         <table>
             <thead>
@@ -62,7 +127,7 @@
                     <th>日期</th>
                     <th>代號</th>
                     <th>股數</th>
-                    <th>股價</th>
+                    <th>股價/所得價</th>
                     <th>匯率</th>
                     <th>價值 (TWD)</th>
                     <th>價值 (USD)</th>
@@ -83,7 +148,7 @@
                         <td>{{ row.source }}</td>
                     </tr>
                 {% else %}
-                    <tr><td colspan="8">尚無紀錄</td></tr>
+                    <tr><td colspan="9">尚無紀錄</td></tr>
                 {% endfor %}
             </tbody>
         </table>
@@ -92,7 +157,20 @@
         </form>
     </div>
 
-    <div class="footer">啟動後開啟你的應用網址（本機示例：<strong>http://127.0.0.1:5000</strong>；部署後請使用提供的 HTTPS 網址）。</div>
+    <div class="footer">本機示例：<strong>http://127.0.0.1:5000</strong></div>
 </div>
+
+<script>
+    function switchTab(tab) {
+        document.querySelectorAll('.tab-content').forEach(el => el.classList.remove('active'));
+        document.querySelectorAll('.nav-tab').forEach(el => el.classList.remove('active'));
+        document.getElementById('tab-' + tab).classList.add('active');
+        document.querySelectorAll('.nav-tab').forEach(el => {
+            if (el.textContent.trim().startsWith(tab === 'rsu' ? 'RSU' : 'ESPP')) {
+                el.classList.add('active');
+            }
+        });
+    }
+</script>
 </body>
 </html>
