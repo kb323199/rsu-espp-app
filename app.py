@@ -212,7 +212,6 @@ def fetch_usd_twd_rate(symbol, target_date):
 # ── 路由 ─────────────────────────────────────────────────────
 @app.route("/", methods=["GET", "POST"])
 def index():
-    init_db()
     error = None
     message = None
     if request.method == "POST":
@@ -288,7 +287,6 @@ def index():
 
 @app.route("/clear", methods=["POST"])
 def clear_entries():
-    init_db()
     db = get_db()
     if USE_POSTGRES:
         with db.cursor() as cur:
@@ -304,8 +302,14 @@ def clear_entries():
     return redirect(url_for("index"))
 
 
-if __name__ == "__main__":
-    with app.app_context():
+# ── 應用程式啟動時初始化資料庫 ──────────────────────────────
+with app.app_context():
+    try:
         init_db()
+        print("[startup] 資料庫初始化成功")
+    except Exception as e:
+        print(f"[startup] 資料庫初始化失敗：{e}")
+
+if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5000))
     app.run(host="0.0.0.0", port=port, debug=True)
