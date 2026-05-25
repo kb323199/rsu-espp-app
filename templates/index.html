@@ -85,10 +85,14 @@
             <div class="alert success">{{ espp_message }}</div>
         {% endif %}
 
-        <form method="post">
+        <form method="post" id="espp-form">
             <input type="hidden" name="form_type" value="espp" />
             <label for="purchase_date">ESPP 認購日（1/31 或 7/31）</label>
-            <input id="purchase_date" name="purchase_date" type="date" required />
+            <input id="purchase_date" name="purchase_date" type="date" required
+                   onchange="validateEsppDate(this)" />
+            <div id="espp-date-error" class="alert error" style="display:none; margin-top:-8px; margin-bottom:8px;">
+                ⚠️ ESPP 認購日必須是 <strong>1月31日</strong> 或 <strong>7月31日</strong>，請重新選擇。
+            </div>
             <label for="espp_ticker">美股代號</label>
             <input id="espp_ticker" name="ticker" type="text" placeholder="例如 MU" required />
             <label for="espp_shares">股數</label>
@@ -171,6 +175,30 @@
             }
         });
     }
+
+    function validateEsppDate(input) {
+        const errorDiv = document.getElementById('espp-date-error');
+        const submitBtn = document.querySelector('#espp-form button[type="submit"]');
+        if (!input.value) {
+            errorDiv.style.display = 'none';
+            submitBtn.disabled = false;
+            return;
+        }
+        const d = new Date(input.value);
+        const month = d.getUTCMonth() + 1; // 1-12
+        const day = d.getUTCDate();        // 1-31
+        const valid = day === 31 && (month === 1 || month === 7);
+        errorDiv.style.display = valid ? 'none' : 'block';
+        submitBtn.disabled = !valid;
+        submitBtn.style.opacity = valid ? '1' : '0.5';
+        submitBtn.style.cursor = valid ? 'pointer' : 'not-allowed';
+    }
+
+    // 頁面載入時，若後端回傳 espp_error 且 active_tab 是 espp，重新驗證一次
+    window.addEventListener('DOMContentLoaded', () => {
+        const pd = document.getElementById('purchase_date');
+        if (pd && pd.value) validateEsppDate(pd);
+    });
 </script>
 </body>
 </html>
