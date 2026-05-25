@@ -24,7 +24,9 @@ if USE_POSTGRES:
     import psycopg2.extras
 
 app = Flask(__name__)
-
+trade_date_obj = parse_date(trade_date)
+if trade_date_obj > date.today():
+    raise ValueError("日期錯誤：不能選擇未來日期")
 VALID_TICKER_RE = re.compile(r"^[A-Za-z0-9\.\-]{1,10}$")
 
 
@@ -188,6 +190,15 @@ def fetch_usd_twd_rate_for_today():
                 buy_rate = numbers[0].replace(",", "")
                 return float(buy_rate)
     raise ValueError("無法解析台灣銀行匯率資料")
+
+
+def get_previous_trading_date(target_date):
+    """取得指定日期的前一個交易日（跳過週末，假日由 Yahoo 自動處理）"""
+    prev = target_date - timedelta(days=1)
+    # 跳過週六(5)和週日(6)
+    while prev.weekday() >= 5:
+        prev -= timedelta(days=1)
+    return prev
 
 
 def fetch_usd_twd_rate(symbol, target_date):
