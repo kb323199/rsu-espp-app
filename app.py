@@ -24,9 +24,7 @@ if USE_POSTGRES:
     import psycopg2.extras
 
 app = Flask(__name__)
-trade_date_obj = parse_date(trade_date)
-if trade_date_obj > date.today():
-    raise ValueError("日期錯誤：不能選擇未來日期")
+
 VALID_TICKER_RE = re.compile(r"^[A-Za-z0-9\.\-]{1,10}$")
 
 
