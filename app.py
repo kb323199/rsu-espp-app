@@ -7,7 +7,9 @@ import urllib.parse
 import urllib.request
 import os
 
-from flask import Flask, g, redirect, render_template, request, url_for
+from flask import Flask, g, redirect, render_template, request, url_for, flash
+from flask_login import LoginManager, UserMixin, login_user, logout_user, login_required, current_user
+from werkzeug.security import generate_password_hash, check_password_hash
 
 # ── 資料庫設定 ──────────────────────────────────────────────
 DATABASE_URL = os.environ.get("DATABASE_URL")  # Render PostgreSQL
@@ -24,8 +26,32 @@ if USE_POSTGRES:
     import psycopg2.extras
 
 app = Flask(__name__)
+app.secret_key = os.environ.get("SECRET_KEY", "change-this-in-production-please")
+
+login_manager = LoginManager()
+login_manager.init_app(app)
+login_manager.login_view = "login"
+login_manager.login_message = "請先登入才能使用此功能。"
 
 VALID_TICKER_RE = re.compile(r"^[A-Za-z0-9\.\-]{1,10}$")
+
+
+# ── 使用者模型 ───────────────────────────────────────────────
+class User(UserMixin):
+    def __init__(self, id, username):
+        self.id = id
+        self.username = username
+
+
+@login_manager.user_loader
+def load_user(user_id):
+    rows = db_fetchall(
+        "SELECT id, username FROM users WHERE id = %s" if USE_POSTGRES else "SELECT id, username FROM users WHERE id = ?",
+        (int(user_id),),
+    )
+    if rows:
+        return User(rows[0]["id"], rows[0]["username"])
+    return None
 
 
 # ── 資料庫連線 ───────────────────────────────────────────────
@@ -53,10 +79,23 @@ def init_db():
     db = get_db()
     if USE_POSTGRES:
         with db.cursor() as cur:
+            # 建立 users 資料表
+            cur.execute(
+                """
+                CREATE TABLE IF NOT EXISTS users (
+                    id SERIAL PRIMARY KEY,
+                    username TEXT NOT NULL UNIQUE,
+                    password_hash TEXT NOT NULL,
+                    created_at TEXT NOT NULL
+                )
+                """
+            )
+            # 建立 entries 資料表（含 user_id）
             cur.execute(
                 """
                 CREATE TABLE IF NOT EXISTS entries (
                     id SERIAL PRIMARY KEY,
+                    user_id INTEGER REFERENCES users(id),
                     trade_date TEXT NOT NULL,
                     ticker TEXT NOT NULL,
                     shares REAL NOT NULL,
@@ -73,8 +112,19 @@ def init_db():
     else:
         db.execute(
             """
+            CREATE TABLE IF NOT EXISTS users (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                username TEXT NOT NULL UNIQUE,
+                password_hash TEXT NOT NULL,
+                created_at TEXT NOT NULL
+            )
+            """
+        )
+        db.execute(
+            """
             CREATE TABLE IF NOT EXISTS entries (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id INTEGER,
                 trade_date TEXT NOT NULL,
                 ticker TEXT NOT NULL,
                 shares REAL NOT NULL,
@@ -92,6 +142,11 @@ def init_db():
         if "value_usd" not in cols:
             try:
                 db.execute("ALTER TABLE entries ADD COLUMN value_usd REAL")
+            except Exception:
+                pass
+        if "user_id" not in cols:
+            try:
+                db.execute("ALTER TABLE entries ADD COLUMN user_id INTEGER")
             except Exception:
                 pass
         db.commit()
@@ -267,8 +322,72 @@ def get_espp_reference_dates(purchase_date):
     return price_date_a, price_date_b, rate_date
 
 
+# ── 使用者路由 ────────────────────────────────────────────────
+@app.route("/register", methods=["GET", "POST"])
+def register():
+    if current_user.is_authenticated:
+        return redirect(url_for("index"))
+    error = None
+    if request.method == "POST":
+        username = request.form.get("username", "").strip()
+        password = request.form.get("password", "").strip()
+        confirm = request.form.get("confirm", "").strip()
+        if not username or not password:
+            error = "請填寫帳號與密碼。"
+        elif len(password) < 6:
+            error = "密碼至少需要 6 個字元。"
+        elif password != confirm:
+            error = "兩次密碼輸入不一致。"
+        else:
+            existing = db_fetchall(
+                "SELECT id FROM users WHERE username = %s" if USE_POSTGRES else "SELECT id FROM users WHERE username = ?",
+                (username,),
+            )
+            if existing:
+                error = "此帳號已被使用，請換一個。"
+            else:
+                ph = db_placeholder(3)
+                db_execute(
+                    f"INSERT INTO users (username, password_hash, created_at) VALUES ({ph})",
+                    (username, generate_password_hash(password), datetime.now().isoformat(timespec="seconds")),
+                )
+                flash("註冊成功！請登入。", "success")
+                return redirect(url_for("login"))
+    return render_template("register.html", error=error)
+
+
+@app.route("/login", methods=["GET", "POST"])
+def login():
+    if current_user.is_authenticated:
+        return redirect(url_for("index"))
+    error = None
+    if request.method == "POST":
+        username = request.form.get("username", "").strip()
+        password = request.form.get("password", "").strip()
+        rows = db_fetchall(
+            "SELECT id, username, password_hash FROM users WHERE username = %s" if USE_POSTGRES else "SELECT id, username, password_hash FROM users WHERE username = ?",
+            (username,),
+        )
+        if not rows or not check_password_hash(rows[0]["password_hash"], password):
+            error = "帳號或密碼錯誤。"
+        else:
+            user = User(rows[0]["id"], rows[0]["username"])
+            login_user(user)
+            return redirect(url_for("index"))
+    return render_template("login.html", error=error)
+
+
+@app.route("/logout")
+@login_required
+def logout():
+    logout_user()
+    flash("已登出。", "info")
+    return redirect(url_for("login"))
+
+
 # ── 路由 ─────────────────────────────────────────────────────
 @app.route("/", methods=["GET", "POST"])
+@login_required
 def index():
     rsu_error = None
     rsu_message = None
@@ -302,10 +421,11 @@ def index():
                     usd_twd_rate, rate_source = fetch_usd_twd_rate("USDTWD=X", price_date)
                     value_twd = round(close_price * shares_value * usd_twd_rate, 2)
                     value_usd = round(close_price * shares_value, 4)
-                    ph = db_placeholder(9)
+                    ph = db_placeholder(10)
                     db_execute(
-                        f"INSERT INTO entries (trade_date, ticker, shares, close_price, usd_twd, value_usd, value_twd, source, created_at) VALUES ({ph})",
+                        f"INSERT INTO entries (user_id, trade_date, ticker, shares, close_price, usd_twd, value_usd, value_twd, source, created_at) VALUES ({ph})",
                         (
+                            current_user.id,
                             trade_date_obj.isoformat(),
                             ticker,
                             shares_value,
@@ -364,10 +484,11 @@ def index():
                         "value_usd_formatted": f"{value_usd:,.2f}",
                         "value_twd_formatted": f"{value_twd:,.2f}",
                     }
-                    ph = db_placeholder(9)
+                    ph = db_placeholder(10)
                     db_execute(
-                        f"INSERT INTO entries (trade_date, ticker, shares, close_price, usd_twd, value_usd, value_twd, source, created_at) VALUES ({ph})",
+                        f"INSERT INTO entries (user_id, trade_date, ticker, shares, close_price, usd_twd, value_usd, value_twd, source, created_at) VALUES ({ph})",
                         (
+                            current_user.id,
                             purchase_date_str,
                             ticker,
                             shares_value,
@@ -383,7 +504,8 @@ def index():
                 except Exception as exc:
                     espp_error = str(exc)
 
-    rows_raw = db_fetchall("SELECT * FROM entries ORDER BY id DESC")
+    ph = "%s" if USE_POSTGRES else "?"
+    rows_raw = db_fetchall(f"SELECT * FROM entries WHERE user_id = {ph} ORDER BY id DESC", (current_user.id,))
     processed_rows = []
     for row in rows_raw:
         value_twd = float(row["value_twd"]) if row["value_twd"] is not None else 0.0
@@ -505,19 +627,10 @@ def espp():
 
 
 @app.route("/clear", methods=["POST"])
+@login_required
 def clear_entries():
-    db = get_db()
-    if USE_POSTGRES:
-        with db.cursor() as cur:
-            cur.execute("TRUNCATE TABLE entries RESTART IDENTITY")
-        db.commit()
-    else:
-        try:
-            db.execute("DROP TABLE IF EXISTS entries")
-            db.commit()
-        except Exception:
-            db.rollback()
-        init_db()
+    ph = "%s" if USE_POSTGRES else "?"
+    db_execute(f"DELETE FROM entries WHERE user_id = {ph}", (current_user.id,))
     return redirect(url_for("index"))
 
 
