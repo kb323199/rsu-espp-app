@@ -1,70 +1,112 @@
 # RSU / ESPP 估值計算器
 
-一個以 Flask 製作的簡單 Python Web 應用，用來計算美股持股在指定日期的台幣估值。
+> 供台灣員工計算美股股權報酬（RSU / ESPP）台幣所得的 Web 應用程式
 
-## 功能
+🔗 **線上網址**：https://rsu-espp-app.onrender.com
 
-- 輸入交易日期、股票代號與股數
-- 自動抓取美股收盤價（若指定日期非交易日會自動取最近可用前一交易日）
-- 抓取當日 USD/TWD 匯率（當日匯率不可得時使用歷史匯率來源）
-- 計算並顯示單筆與總計估值，並將每次計算結果逐筆記錄
-- 支援雲端 PostgreSQL（Supabase）與本機 SQLite 雙模式
+---
 
-## 主要檔案
+## 功能總覽
 
-- `app.py`：Flask 應用程式
-- `templates/index.html`：前端頁面（包含「計算並儲存」與「清空所有紀錄」按鈕）
-- `requirements.txt`：相依套件清單
-- `entries.db`：SQLite 本機資料庫（僅本機模式使用，第一次執行時自動建立）
+### 使用者系統
+- 帳號註冊 / 登入 / 登出
+- 計算紀錄綁定個人帳號，不同使用者彼此隔離
 
-## 資料庫架構
+### RSU 計算
+- 輸入授予日期、美股代號、股數
+- 自動抓取授予日**前一交易日**收盤價（Yahoo Finance）
+- 自動抓取當日美金/台幣匯率（台灣銀行）
+- 計算台幣總價值 = 收盤價 × 股數 × 匯率
 
-本專案支援兩種資料庫模式，會依環境變數 `DATABASE_URL` 自動切換：
+### ESPP 計算
+- 認購日限 1/31 或 7/31
+- 自動依 ESPP 規則抓取兩個參考日股價
+- 成本價 = min(參考A, 參考B) × 85%
+- 所得 = (所得價 - 成本價) × 股數 × 匯率
 
-| 環境 | 資料庫 | 說明 |
-|------|--------|------|
-| 本機開發 | SQLite (`entries.db`) | 無需額外設定，自動建立於專案目錄 |
-| Render 雲端部署 | Supabase PostgreSQL | 資料永久保留，不受伺服器重啟影響 |
+### 紀錄管理
+- 歷史紀錄列表（含台幣總計）
+- 單筆刪除紀錄
+- 清空所有紀錄
+- 匯出 CSV（Excel 開啟中文不亂碼）
+- 匯出 Excel（含格式化標題列）
 
-### 雲端資料庫（Supabase）
+---
 
-- 使用 [Supabase](https://supabase.com) 免費方案
-- 免費方案無到期限制（500 MB 儲存空間）
-- 若連續 7 天無操作，資料庫會自動暫停，重新連線時自動喚醒，資料不會消失
+## 技術架構
 
-## 快速啟動
+| 項目 | 技術 |
+|------|------|
+| 後端 | Python Flask |
+| 使用者認證 | Flask-Login + Werkzeug |
+| 資料庫（開發）| SQLite |
+| 資料庫（生產）| PostgreSQL (Supabase) |
+| 股價來源 | Yahoo Finance API v8（免費，無需 API Key）|
+| 匯率來源 | 台灣銀行網頁即時匯率 |
+| 部署平台 | Render |
+| Excel 匯出 | openpyxl |
 
-### 本機開發
+---
 
-1. 建議建立虛擬環境（可選）：
-   ```bash
-   python3 -m venv venv
-   source venv/bin/activate
-   ```
-2. 安裝相依套件：
-   ```bash
-   pip install -r requirements.txt
-   ```
-3. 啟動應用程式：
-   ```bash
-   python app.py
-   ```
-4. 在瀏覽器開啟：
-   - 本機預設: [http://127.0.0.1:5000](http://127.0.0.1:5000)
-   - 若埠 5000 被系統或其他服務佔用，應用程式可能會啟動在其他埠（例如 5001）：[http://127.0.0.1:5001](http://127.0.0.1:5001)
-   - 若使用自訂埠啟動（例如 `PORT=5001 python3 app.py`），請以對應埠開啟瀏覽器
+## 本機開發
 
-使用說明
+### 1. 安裝套件
+```bash
+pip install -r requirements.txt
+```
 
-1. 在表單輸入交易日期（格式 `yyyy-mm-dd`）、美股代號（例如 AAPL）與股數
-2. 點擊「計算並儲存」以計算並把結果儲存到資料庫
-3. 若要清除所有紀錄，點選頁面上的「清空所有紀錄」按鈕
-4. 頁面下方表格會列出逐筆紀錄，同時顯示所有紀錄的總估值
+### 2. 啟動
+```bash
+python app.py
+```
 
-備註
+瀏覽器開啟：http://localhost:5000
 
-- 股票代號請輸入美股代號（英文，不含交易所後綴）
-- 日期若為非交易日系統會自動選擇最近可用的前一個交易日收盤價
-- `entries.db` 會在程式首次執行時建立於專案目錄
+> 本機使用 SQLite（`entries.db`），不需設定資料庫。
 
-如需更多修改（例如加入測試或 API 文件），請告訴我要加入的內容。
+---
+
+## 部署到 Render
+
+### 環境變數設定
+
+| 變數名稱 | 說明 |
+|----------|------|
+| `DATABASE_URL` | Supabase PostgreSQL 連線字串 |
+| `SECRET_KEY` | Flask session 加密金鑰（任意字串） |
+
+### 部署步驟
+1. Fork 或 Push 到 GitHub
+2. Render → New Web Service → 連結 GitHub repo
+3. 設定環境變數
+4. 啟動指令：`gunicorn app:app`（已寫入 Procfile）
+
+---
+
+## 專案結構
+
+```
+rsu-espp-app/
+├── app.py              # 主程式（路由、資料庫、計算邏輯）
+├── requirements.txt    # Python 套件清單
+├── Procfile            # Render 啟動指令
+├── project prompt.md   # 專案起始 Prompt 說明
+├── README.md
+└── templates/
+    ├── index.html      # 主頁（計算 + 紀錄列表）
+    ├── login.html      # 登入頁
+    └── register.html   # 註冊頁
+```
+
+---
+
+## requirements.txt
+
+```
+Flask>=2.0
+gunicorn>=20.0
+psycopg2-binary>=2.9
+Flask-Login>=0.6
+Werkzeug>=2.0
+openpyxl>=3.0
+```
