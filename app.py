@@ -79,17 +79,36 @@ def init_db():
                 )
                 """
             )
-            with db.cursor() as cur:
-                cur.execute(
-                    """
-                    CREATE TABLE IF NOT EXISTS users (
-                        id SERIAL PRIMARY KEY,
-                        username TEXT UNIQUE NOT NULL,
-                        password_hash TEXT NOT NULL,
-                        created_at TEXT NOT NULL
-                    )
-                    """
+            # 檢查並添加 user_id 和 value_usd 欄位（如果不存在）
+            cur.execute(
+                """
+                DO $ 
+                BEGIN
+                    IF NOT EXISTS (
+                        SELECT 1 FROM information_schema.columns 
+                        WHERE table_name = 'entries' AND column_name = 'user_id'
+                    ) THEN
+                        ALTER TABLE entries ADD COLUMN user_id INTEGER;
+                    END IF;
+                    IF NOT EXISTS (
+                        SELECT 1 FROM information_schema.columns 
+                        WHERE table_name = 'entries' AND column_name = 'value_usd'
+                    ) THEN
+                        ALTER TABLE entries ADD COLUMN value_usd REAL;
+                    END IF;
+                END $;
+                """
+            )
+            cur.execute(
+                """
+                CREATE TABLE IF NOT EXISTS users (
+                    id SERIAL PRIMARY KEY,
+                    username TEXT UNIQUE NOT NULL,
+                    password_hash TEXT NOT NULL,
+                    created_at TEXT NOT NULL
                 )
+                """
+            )
         db.commit()
     else:
         db.execute(
