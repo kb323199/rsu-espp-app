@@ -108,6 +108,11 @@ def init_db():
                 )
                 """
             )
+        # 若 entries 已存在但缺少 user_id 欄位，補上
+        with db.cursor() as cur:
+            cur.execute("""
+                ALTER TABLE entries ADD COLUMN IF NOT EXISTS user_id INTEGER REFERENCES users(id)
+            """)
         db.commit()
     else:
         db.execute(
