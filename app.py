@@ -631,6 +631,15 @@ def espp():
     return render_template("espp.html", error=error, message=message, result=result)
 
 
+@app.route("/delete/<int:entry_id>", methods=["POST"])
+@login_required
+def delete_entry(entry_id):
+    ph = "%s" if USE_POSTGRES else "?"
+    # 確保只能刪除自己的紀錄，防止刪除別人的資料
+    db_execute(f"DELETE FROM entries WHERE id = {ph} AND user_id = {ph}", (entry_id, current_user.id))
+    return redirect(url_for("index"))
+
+
 @app.route("/clear", methods=["POST"])
 @login_required
 def clear_entries():

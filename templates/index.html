@@ -156,9 +156,13 @@
                         <td>{{ row.usd_twd }}</td>
                         <td>{{ row.value_formatted }}</td>
                         <td>{{ row.value_usd_formatted }}</td>
-                        <td>{{ row.source }}</td>
-                    </tr>
-                {% else %}
+                                                <td>{{ row.source }}</td>
+                                                    <td>
+                                                        <form method="post" action="/delete/{{ row.id }}" onsubmit="return confirm('確定刪除這筆紀錄？')">
+                                                            <button type="submit" style="background:#ef4444;color:#fff;border:none;padding:4px 10px;border-radius:6px;cursor:pointer;font-size:13px;">刪除</button>
+                                                        </form>
+                                                    </td>
+                                                    </tr>                {% else %}
                     <tr><td colspan="9">尚無紀錄</td></tr>
                 {% endfor %}
             </tbody>
