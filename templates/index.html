@@ -148,7 +148,7 @@
             <tbody>
                 {% for row in rows %}
                     <tr>
-                        <td>{{ row.id }}</td>
+                        <td>{{ loop.index }}</td>
                         <td>{{ row.trade_date }}</td>
                         <td>{{ row.ticker }}</td>
                         <td>{{ row.shares }}</td>
