@@ -639,6 +639,82 @@ def clear_entries():
     return redirect(url_for("index"))
 
 
+# ── 匯出功能 ─────────────────────────────────────────────────
+import csv
+import io
+from flask import make_response
+
+@app.route("/export/csv")
+@login_required
+def export_csv():
+    ph = "%s" if USE_POSTGRES else "?"
+    rows = db_fetchall(f"SELECT * FROM entries WHERE user_id = {ph} ORDER BY id DESC", (current_user.id,))
+    output = io.StringIO()
+    writer = csv.writer(output)
+    writer.writerow(["日期", "代號", "股數", "股價/所得價(USD)", "匯率(USD/TWD)", "價值(TWD)", "價值(USD)", "備註", "建立時間"])
+    for r in rows:
+        writer.writerow([
+            r["trade_date"], r["ticker"], r["shares"],
+            r["close_price"], r["usd_twd"],
+            r["value_twd"], r["value_usd"],
+            r["source"], r["created_at"]
+        ])
+    response = make_response(output.getvalue())
+    response.headers["Content-Disposition"] = "attachment; filename=rsu_espp_records.csv"
+    response.headers["Content-Type"] = "text/csv; charset=utf-8-sig"
+    return response
+
+
+@app.route("/export/excel")
+@login_required
+def export_excel():
+    try:
+        import openpyxl
+        from openpyxl.styles import Font, PatternFill, Alignment
+    except ImportError:
+        return "請先安裝 openpyxl：pip install openpyxl", 500
+
+    ph = "%s" if USE_POSTGRES else "?"
+    rows = db_fetchall(f"SELECT * FROM entries WHERE user_id = {ph} ORDER BY id DESC", (current_user.id,))
+
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.title = "RSU ESPP 紀錄"
+
+    headers = ["日期", "代號", "股數", "股價/所得價(USD)", "匯率(USD/TWD)", "價值(TWD)", "價值(USD)", "備註", "建立時間"]
+    header_fill = PatternFill("solid", fgColor="2563EB")
+    header_font = Font(bold=True, color="FFFFFF")
+
+    for col, h in enumerate(headers, 1):
+        cell = ws.cell(row=1, column=col, value=h)
+        cell.fill = header_fill
+        cell.font = header_font
+        cell.alignment = Alignment(horizontal="center")
+
+    for row_idx, r in enumerate(rows, 2):
+        ws.cell(row=row_idx, column=1, value=r["trade_date"])
+        ws.cell(row=row_idx, column=2, value=r["ticker"])
+        ws.cell(row=row_idx, column=3, value=float(r["shares"]))
+        ws.cell(row=row_idx, column=4, value=float(r["close_price"]))
+        ws.cell(row=row_idx, column=5, value=float(r["usd_twd"]))
+        ws.cell(row=row_idx, column=6, value=float(r["value_twd"]))
+        ws.cell(row=row_idx, column=7, value=float(r["value_usd"]) if r["value_usd"] else 0)
+        ws.cell(row=row_idx, column=8, value=r["source"])
+        ws.cell(row=row_idx, column=9, value=r["created_at"])
+
+    for col in ws.columns:
+        max_len = max((len(str(c.value)) if c.value else 0) for c in col)
+        ws.column_dimensions[col[0].column_letter].width = min(max_len + 4, 50)
+
+    output = io.BytesIO()
+    wb.save(output)
+    output.seek(0)
+    response = make_response(output.read())
+    response.headers["Content-Disposition"] = "attachment; filename=rsu_espp_records.xlsx"
+    response.headers["Content-Type"] = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+    return response
+
+
 # ── 應用程式啟動時初始化資料庫 ──────────────────────────────
 with app.app_context():
     try:
