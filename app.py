@@ -7,11 +7,7 @@ import urllib.parse
 import urllib.request
 import os
 
-from flask import Flask, g, redirect, render_template, request, url_for, session, flash, send_file
-from werkzeug.security import generate_password_hash, check_password_hash
-import csv
-import io
-from openpyxl import Workbook
+from flask import Flask, g, redirect, render_template, request, url_for
 
 # ── 資料庫設定 ──────────────────────────────────────────────
 DATABASE_URL = os.environ.get("DATABASE_URL")  # Render PostgreSQL
@@ -28,7 +24,6 @@ if USE_POSTGRES:
     import psycopg2.extras
 
 app = Flask(__name__)
-app.secret_key = os.environ.get("SECRET_KEY") or "dev-secret-change-me"
 
 VALID_TICKER_RE = re.compile(r"^[A-Za-z0-9\.\-]{1,10}$")
 
@@ -62,7 +57,6 @@ def init_db():
                 """
                 CREATE TABLE IF NOT EXISTS entries (
                     id SERIAL PRIMARY KEY,
-                    user_id INTEGER,
                     trade_date TEXT NOT NULL,
                     ticker TEXT NOT NULL,
                     shares REAL NOT NULL,
@@ -75,24 +69,12 @@ def init_db():
                 )
                 """
             )
-            with db.cursor() as cur:
-                cur.execute(
-                    """
-                    CREATE TABLE IF NOT EXISTS users (
-                        id SERIAL PRIMARY KEY,
-                        username TEXT UNIQUE NOT NULL,
-                        password_hash TEXT NOT NULL,
-                        created_at TEXT NOT NULL
-                    )
-                    """
-                )
         db.commit()
     else:
         db.execute(
             """
             CREATE TABLE IF NOT EXISTS entries (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
-                user_id INTEGER,
                 trade_date TEXT NOT NULL,
                 ticker TEXT NOT NULL,
                 shares REAL NOT NULL,
@@ -105,27 +87,11 @@ def init_db():
             )
             """
         )
-        # users table
-        db.execute(
-            """
-            CREATE TABLE IF NOT EXISTS users (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                username TEXT UNIQUE NOT NULL,
-                password_hash TEXT NOT NULL,
-                created_at TEXT NOT NULL
-            )
-            """
-        )
         cur = db.execute("PRAGMA table_info(entries)")
         cols = [r[1] for r in cur.fetchall()]
         if "value_usd" not in cols:
             try:
                 db.execute("ALTER TABLE entries ADD COLUMN value_usd REAL")
-            except Exception:
-                pass
-        if "user_id" not in cols:
-            try:
-                db.execute("ALTER TABLE entries ADD COLUMN user_id INTEGER")
             except Exception:
                 pass
         db.commit()
@@ -151,29 +117,6 @@ def db_execute(query, params=()):
     else:
         db.execute(query, params)
         db.commit()
-
-
-def get_current_user():
-    uid = session.get("user_id")
-    if not uid:
-        return None
-    rows = db_fetchall("SELECT id, username FROM users WHERE id = %s" % ("%s" if USE_POSTGRES else "?"), (uid,))
-    if not rows:
-        return None
-    r = rows[0]
-    if USE_POSTGRES:
-        return {"id": r["id"], "username": r["username"]}
-    else:
-        return {"id": r["id"], "username": r["username"]}
-
-
-def login_required(fn):
-    def wrapper(*args, **kwargs):
-        if not session.get("user_id"):
-            return redirect(url_for("login", next=request.path))
-        return fn(*args, **kwargs)
-    wrapper.__name__ = fn.__name__
-    return wrapper
 
 
 def db_placeholder(n):
@@ -334,14 +277,11 @@ def index():
     espp_result = None
     active_tab = request.form.get("active_tab", "rsu")  # 記住目前 tab
 
-    current_user = get_current_user()
     if request.method == "POST":
         form_type = request.form.get("form_type", "rsu")
         active_tab = form_type
 
         if form_type == "rsu":
-            if not current_user:
-                return redirect(url_for("login", next=request.path))
             trade_date = request.form.get("trade_date", "").strip()
             ticker = request.form.get("ticker", "").strip().upper()
             shares = request.form.get("shares", "").strip()
@@ -362,11 +302,10 @@ def index():
                     usd_twd_rate, rate_source = fetch_usd_twd_rate("USDTWD=X", price_date)
                     value_twd = round(close_price * shares_value * usd_twd_rate, 2)
                     value_usd = round(close_price * shares_value, 4)
-                    ph = db_placeholder(10)
+                    ph = db_placeholder(9)
                     db_execute(
-                        f"INSERT INTO entries (user_id, trade_date, ticker, shares, close_price, usd_twd, value_usd, value_twd, source, created_at) VALUES ({ph})",
+                        f"INSERT INTO entries (trade_date, ticker, shares, close_price, usd_twd, value_usd, value_twd, source, created_at) VALUES ({ph})",
                         (
-                            current_user["id"],
                             trade_date_obj.isoformat(),
                             ticker,
                             shares_value,
@@ -392,8 +331,6 @@ def index():
                 espp_error = "股票代號格式不正確。"
             else:
                 try:
-                    if not current_user:
-                        return redirect(url_for("login", next=request.path))
                     purchase_date = parse_date(purchase_date_str)
                     if purchase_date.day != 31 or purchase_date.month not in (1, 7):
                         raise ValueError("ESPP 認購日必須是 1/31 或 7/31")
@@ -427,11 +364,10 @@ def index():
                         "value_usd_formatted": f"{value_usd:,.2f}",
                         "value_twd_formatted": f"{value_twd:,.2f}",
                     }
-                    ph = db_placeholder(10)
+                    ph = db_placeholder(9)
                     db_execute(
-                        f"INSERT INTO entries (user_id, trade_date, ticker, shares, close_price, usd_twd, value_usd, value_twd, source, created_at) VALUES ({ph})",
+                        f"INSERT INTO entries (trade_date, ticker, shares, close_price, usd_twd, value_usd, value_twd, source, created_at) VALUES ({ph})",
                         (
-                            current_user["id"],
                             purchase_date_str,
                             ticker,
                             shares_value,
@@ -447,11 +383,7 @@ def index():
                 except Exception as exc:
                     espp_error = str(exc)
 
-    # 只顯示目前使用者的紀錄
-    if current_user:
-        rows_raw = db_fetchall("SELECT * FROM entries WHERE user_id = %s ORDER BY id DESC" % ("%s" if USE_POSTGRES else "?"), (current_user["id"],))
-    else:
-        rows_raw = []
+    rows_raw = db_fetchall("SELECT * FROM entries ORDER BY id DESC")
     processed_rows = []
     for row in rows_raw:
         value_twd = float(row["value_twd"]) if row["value_twd"] is not None else 0.0
@@ -479,7 +411,6 @@ def index():
         total=round(total, 2),
         total_formatted=total_formatted,
         active_tab=active_tab,
-        current_user=current_user,
         rsu_error=rsu_error,
         rsu_message=rsu_message,
         espp_error=espp_error,
@@ -493,11 +424,8 @@ def espp():
     error = None
     message = None
     result = None
-    current_user = get_current_user()
 
     if request.method == "POST":
-        if not current_user:
-            return redirect(url_for("login", next=request.path))
         purchase_date_str = request.form.get("purchase_date", "").strip()
         ticker = request.form.get("ticker", "").strip().upper()
         shares = request.form.get("shares", "").strip()
@@ -553,11 +481,10 @@ def espp():
                 }
 
                 # 儲存到資料庫
-                ph = db_placeholder(10)
+                ph = db_placeholder(9)
                 db_execute(
-                    f"INSERT INTO entries (user_id, trade_date, ticker, shares, close_price, usd_twd, value_usd, value_twd, source, created_at) VALUES ({ph})",
+                    f"INSERT INTO entries (trade_date, ticker, shares, close_price, usd_twd, value_usd, value_twd, source, created_at) VALUES ({ph})",
                     (
-                        current_user["id"],
                         purchase_date_str,
                         ticker,
                         shares_value,
@@ -575,151 +502,6 @@ def espp():
                 error = str(exc)
 
     return render_template("espp.html", error=error, message=message, result=result)
-
-
-@app.route("/register", methods=["GET", "POST"])
-def register():
-    if request.method == "POST":
-        username = request.form.get("username", "").strip()
-        password = request.form.get("password", "")
-        if not username or not password:
-            flash("請填寫使用者名稱與密碼。", "error")
-            return render_template("register.html")
-        # 檢查是否已存在
-        existing = db_fetchall("SELECT id FROM users WHERE username = %s" % ("%s" if USE_POSTGRES else "?"), (username,))
-        if existing:
-            flash("使用者名稱已存在，請選擇其他名稱。", "error")
-            return render_template("register.html")
-        pw_hash = generate_password_hash(password)
-        ph = db_placeholder(3)
-        db_execute(f"INSERT INTO users (username, password_hash, created_at) VALUES ({ph})", (username, pw_hash, datetime.now().isoformat(timespec="seconds")))
-        user = db_fetchall("SELECT id, username FROM users WHERE username = %s" % ("%s" if USE_POSTGRES else "?"), (username,))
-        if user:
-            session["user_id"] = user[0]["id"]
-            return redirect(url_for("index"))
-        flash("註冊失敗，請稍後再試。", "error")
-    return render_template("register.html")
-
-
-@app.route("/login", methods=["GET", "POST"])
-def login():
-    next_url = request.args.get("next") or request.form.get("next") or url_for("index")
-    if request.method == "POST":
-        username = request.form.get("username", "").strip()
-        password = request.form.get("password", "")
-        if not username or not password:
-            flash("請填寫使用者名稱與密碼。", "error")
-            return render_template("login.html", next=next_url)
-        row = db_fetchall("SELECT id, password_hash FROM users WHERE username = %s" % ("%s" if USE_POSTGRES else "?"), (username,))
-        if not row:
-            flash("使用者不存在。", "error")
-            return render_template("login.html", next=next_url)
-        user_id = row[0]["id"]
-        pw_hash = row[0]["password_hash"]
-        if not check_password_hash(pw_hash, password):
-            flash("密碼錯誤。", "error")
-            return render_template("login.html", next=next_url)
-        session["user_id"] = user_id
-        return redirect(next_url)
-    return render_template("login.html", next=next_url)
-
-
-@app.route("/logout")
-def logout():
-    session.pop("user_id", None)
-    return redirect(url_for("index"))
-
-
-@app.route("/export")
-def export():
-    current_user = get_current_user()
-    if not current_user:
-        return redirect(url_for("login", next=request.path))
-    
-    export_format = request.args.get("format", "csv").lower()
-    
-    # 獲取當前用戶的所有紀錄
-    rows_raw = db_fetchall(
-        "SELECT trade_date, ticker, shares, close_price, usd_twd, value_usd, value_twd, source FROM entries WHERE user_id = %s ORDER BY id DESC" % ("%s" if USE_POSTGRES else "?"),
-        (current_user["id"],)
-    )
-    
-    if export_format == "excel":
-        # 導出為 Excel
-        wb = Workbook()
-        ws = wb.active
-        ws.title = "計算紀錄"
-        
-        # 表頭
-        headers = ["日期", "代號", "股數", "股價/所得價", "匯率", "價值 (USD)", "價值 (TWD)", "備註"]
-        ws.append(headers)
-        
-        # 數據行
-        for row in rows_raw:
-            value_twd = float(row["value_twd"]) if row["value_twd"] is not None else 0.0
-            value_usd = float(row["value_usd"]) if row["value_usd"] is not None else 0.0
-            ws.append([
-                row["trade_date"],
-                row["ticker"],
-                row["shares"],
-                row["close_price"],
-                row["usd_twd"],
-                f"{value_usd:.2f}",
-                f"{value_twd:.2f}",
-                row["source"]
-            ])
-        
-        # 設置列寬
-        ws.column_dimensions["A"].width = 12
-        ws.column_dimensions["B"].width = 10
-        ws.column_dimensions["C"].width = 10
-        ws.column_dimensions["D"].width = 12
-        ws.column_dimensions["E"].width = 10
-        ws.column_dimensions["F"].width = 14
-        ws.column_dimensions["G"].width = 14
-        ws.column_dimensions["H"].width = 30
-        
-        # 返回 Excel 文件
-        excel_io = io.BytesIO()
-        wb.save(excel_io)
-        excel_io.seek(0)
-        return send_file(
-            excel_io,
-            mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-            as_attachment=True,
-            download_name=f"RSU_ESPP_records_{current_user['username']}.xlsx"
-        )
-    else:
-        # 導出為 CSV（預設）
-        csv_io = io.StringIO()
-        csv_writer = csv.writer(csv_io)
-        
-        # 表頭
-        csv_writer.writerow(["Date", "Ticker", "Shares", "Price", "Exchange Rate", "Value (USD)", "Value (TWD)", "Remark"])
-        
-        # 數據行
-        for row in rows_raw:
-            value_twd = float(row["value_twd"]) if row["value_twd"] is not None else 0.0
-            value_usd = float(row["value_usd"]) if row["value_usd"] is not None else 0.0
-            csv_writer.writerow([
-                row["trade_date"],
-                row["ticker"],
-                row["shares"],
-                row["close_price"],
-                row["usd_twd"],
-                f"{value_usd:.2f}",
-                f"{value_twd:.2f}",
-                row["source"]
-            ])
-        
-        csv_io.seek(0)
-        return send_file(
-            io.BytesIO(csv_io.getvalue().encode("utf-8-sig")),
-            mimetype="text/csv",
-            as_attachment=True,
-            download_name=f"RSU_ESPP_records_{current_user['username']}.csv"
-        )
-
 
 
 @app.route("/clear", methods=["POST"])

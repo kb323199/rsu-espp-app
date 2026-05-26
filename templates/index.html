@@ -42,15 +42,6 @@
     <div class="card" style="padding-bottom: 0;">
         <h1 style="margin-bottom: 4px;">RSU / ESPP 估值計算器</h1>
         <p class="note" style="margin-bottom: 16px;">系統會抓取美股收盤價與美金/台幣匯率，並記錄每筆資料。</p>
-        <div style="text-align: right; margin-top: -40px;">
-            {% if current_user %}
-                歡迎，<strong>{{ current_user.username }}</strong> |
-                <a href="/logout">登出</a>
-            {% else %}
-                <a href="/login">登入</a> |
-                <a href="/register">註冊</a>
-            {% endif %}
-        </div>
 
         <!-- Tab 按鈕 -->
         <div class="nav-tabs">
@@ -132,11 +123,7 @@
     <div class="card">
         <h2>儲存紀錄</h2>
         <p class="note">RSU 與 ESPP 的計算結果統一顯示於此。</p>
-        {% if current_user %}
-            <div class="text-right"><strong>總計：{{ total_formatted }} TWD</strong></div>
-        {% else %}
-            <div class="text-right"><strong>請先登入以查看與建立您的個人紀錄。</strong></div>
-        {% endif %}
+        <div class="text-right"><strong>總計：{{ total_formatted }} TWD</strong></div>
         <table>
             <thead>
                 <tr>
@@ -169,19 +156,9 @@
                 {% endfor %}
             </tbody>
         </table>
-        <div style="margin-top:18px; display:flex; gap:12px;">
-            {% if current_user %}
-                <a href="/export?format=csv" style="text-decoration:none;">
-                    <button type="button">匯出 CSV</button>
-                </a>
-                <a href="/export?format=excel" style="text-decoration:none;">
-                    <button type="button">匯出 Excel</button>
-                </a>
-            {% endif %}
-            <form method="post" action="/clear" style="margin:0;">
-                <button type="submit" class="secondary">清空所有紀錄</button>
-            </form>
-        </div>
+        <form method="post" action="/clear" style="margin-top:18px;">
+            <button type="submit" class="secondary">清空所有紀錄</button>
+        </form>
     </div>
 
     <div class="footer">本機示例：<strong>http://127.0.0.1:5000</strong></div>
