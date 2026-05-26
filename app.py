@@ -38,12 +38,8 @@ def get_db():
     db = getattr(g, "db", None)
     if db is None:
         if USE_POSTGRES:
-            try:
-                db = psycopg2.connect(DATABASE_URL)
-                g.db = db
-            except Exception as e:
-                print(f"[ERROR] 無法連線到 PostgreSQL 資料庫: {e}")
-                raise
+            db = psycopg2.connect(DATABASE_URL)
+            g.db = db
         else:
             db = sqlite3.connect(DATABASE_SQLITE)
             db.row_factory = sqlite3.Row
@@ -79,36 +75,17 @@ def init_db():
                 )
                 """
             )
-            # 檢查並添加 user_id 和 value_usd 欄位（如果不存在）
-            cur.execute(
-                """
-                DO $ 
-                BEGIN
-                    IF NOT EXISTS (
-                        SELECT 1 FROM information_schema.columns 
-                        WHERE table_name = 'entries' AND column_name = 'user_id'
-                    ) THEN
-                        ALTER TABLE entries ADD COLUMN user_id INTEGER;
-                    END IF;
-                    IF NOT EXISTS (
-                        SELECT 1 FROM information_schema.columns 
-                        WHERE table_name = 'entries' AND column_name = 'value_usd'
-                    ) THEN
-                        ALTER TABLE entries ADD COLUMN value_usd REAL;
-                    END IF;
-                END $;
-                """
-            )
-            cur.execute(
-                """
-                CREATE TABLE IF NOT EXISTS users (
-                    id SERIAL PRIMARY KEY,
-                    username TEXT UNIQUE NOT NULL,
-                    password_hash TEXT NOT NULL,
-                    created_at TEXT NOT NULL
+            with db.cursor() as cur:
+                cur.execute(
+                    """
+                    CREATE TABLE IF NOT EXISTS users (
+                        id SERIAL PRIMARY KEY,
+                        username TEXT UNIQUE NOT NULL,
+                        password_hash TEXT NOT NULL,
+                        created_at TEXT NOT NULL
+                    )
+                    """
                 )
-                """
-            )
         db.commit()
     else:
         db.execute(
@@ -184,10 +161,10 @@ def get_current_user():
     if not rows:
         return None
     r = rows[0]
-    # Ensure consistent key access for both psycopg2 (dict-like) and sqlite3.Row (index-based)
-    user_id = r['id'] if isinstance(r, dict) else r[0]
-    username = r['username'] if isinstance(r, dict) else r[1]
-    return {"id": user_id, "username": username}
+    if USE_POSTGRES:
+        return {"id": r["id"], "username": r["username"]}
+    else:
+        return {"id": r["id"], "username": r["username"]}
 
 
 def login_required(fn):
@@ -616,12 +593,9 @@ def register():
         pw_hash = generate_password_hash(password)
         ph = db_placeholder(3)
         db_execute(f"INSERT INTO users (username, password_hash, created_at) VALUES ({ph})", (username, pw_hash, datetime.now().isoformat(timespec="seconds")))
-        # 再次查詢用戶，並獲取 id
-        user_row = db_fetchall("SELECT id, username FROM users WHERE username = %s" % ("%s" if USE_POSTGRES else "?"), (username,))
-        if user_row:
-            # 從結果中獲取 id，兼容 psycopg2.extras.RealDictCursor 和 sqlite3.Row
-            user_id = user_row[0]["id"] if USE_POSTGRES else user_row[0][0]
-            session["user_id"] = user_id
+        user = db_fetchall("SELECT id, username FROM users WHERE username = %s" % ("%s" if USE_POSTGRES else "?"), (username,))
+        if user:
+            session["user_id"] = user[0]["id"]
             return redirect(url_for("index"))
         flash("註冊失敗，請稍後再試。", "error")
     return render_template("register.html")
@@ -640,7 +614,7 @@ def login():
         if not row:
             flash("使用者不存在。", "error")
             return render_template("login.html", next=next_url)
-        user_id = row[0]["id"] if USE_POSTGRES else row[0][0]
+        user_id = row[0]["id"]
         pw_hash = row[0]["password_hash"]
         if not check_password_hash(pw_hash, password):
             flash("密碼錯誤。", "error")
