@@ -659,9 +659,11 @@ def export_csv():
             r["value_twd"], r["value_usd"],
             r["source"], r["created_at"]
         ])
-    response = make_response(output.getvalue())
+    # 加上 UTF-8 BOM，確保 Excel 開啟中文不亂碼
+    content = '\ufeff' + output.getvalue()
+    response = make_response(content.encode('utf-8'))
     response.headers["Content-Disposition"] = "attachment; filename=rsu_espp_records.csv"
-    response.headers["Content-Type"] = "text/csv; charset=utf-8-sig"
+    response.headers["Content-Type"] = "text/csv; charset=utf-8"
     return response
 
 
