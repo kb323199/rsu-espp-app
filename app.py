@@ -466,7 +466,7 @@ def index():
                     price_a, actual_date_a = fetch_yahoo_close_price(ticker, price_date_a)
                     price_b, actual_date_b = fetch_yahoo_close_price(ticker, price_date_b)
                     cost_price = round(min(price_a, price_b) * 0.85, 4)
-                    income_price = round(max(price_a, price_b), 4)
+                    income_price = round(price_a, 4)  # 所得價固定為參考價格A
                     usd_twd_rate, rate_source = fetch_usd_twd_rate("USDTWD=X", rate_date)
                     gain_per_share = round(income_price - cost_price, 4)
                     value_usd = round(gain_per_share * shares_value, 4)
@@ -578,7 +578,7 @@ def espp():
 
                 # 計算成本價與所得價
                 cost_price = round(min(price_a, price_b) * 0.85, 4)   # 較低價 × 85%
-                income_price = round(max(price_a, price_b), 4)         # 較高價
+                income_price = round(price_a, 4)                        # 所得價固定為參考價格A
 
                 # 抓匯率（認購日當日）
                 usd_twd_rate, rate_source = fetch_usd_twd_rate("USDTWD=X", rate_date)
