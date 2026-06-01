@@ -83,7 +83,7 @@
     <!-- ESPP Tab 內容 -->
     <div id="tab-espp" class="card tab-content {% if active_tab == 'espp' %}active{% endif %}" style="border-radius: 0 14px 14px 14px; margin-top: 0;">
         <p class="note">輸入 ESPP 認購日（僅限 <strong>1/31</strong> 或 <strong>7/31</strong>）、美股代號與股數。<br/>
-        系統自動取兩個參考日收盤價，較低價×85% 為成本，較高價為所得。</p>
+        系統自動取兩個參考日收盤價，較低價×85% 為成本，認購日股價為所得。</p>
 
         {% if espp_error %}
             <div class="alert error">{{ espp_error }}</div>
@@ -116,7 +116,7 @@
             <tr><th>參考價格 A（{{ espp_result.price_date_a }}）</th><td>USD {{ espp_result.price_a }}</td></tr>
             <tr><th>參考價格 B（{{ espp_result.price_date_b }}）</th><td>USD {{ espp_result.price_b }}</td></tr>
             <tr><th>成本價（較低價 × 85%）</th><td>USD {{ espp_result.cost_price }}</td></tr>
-            <tr><th>所得價（較高價）</th><td>USD {{ espp_result.income_price }}</td></tr>
+            <tr><th>所得價（認購日股價）</th><td>USD {{ espp_result.income_price }}</td></tr>
             <tr><th>每股所得</th><td>USD {{ espp_result.gain_per_share }}</td></tr>
             <tr><th>股數</th><td>{{ espp_result.shares }}</td></tr>
             <tr><th>匯率（{{ espp_result.rate_source }}）</th><td>{{ espp_result.usd_twd_rate }}</td></tr>
