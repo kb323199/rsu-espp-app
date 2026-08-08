@@ -1,22 +1,22 @@
 from datetime import date, timedelta
 
-def get_prev_trading_day(d):
+def get_prev_trading_day(dt):
     """
     取得指定日期的前一個交易日：
     - 平日(週一~週五) → 往前1天
     - 週六 → 往前2天
     - 週日 → 往前3天
     """
-    wd = d.weekday()
+    wd = dt.weekday()
     if wd == 5:    # 週六
-        d -= timedelta(days=2)
+        dt -= timedelta(days=2)
     elif wd == 6:  # 週日
-        d -= timedelta(days=3)
+        dt -= timedelta(days=3)
     else:          # 週一~週五
-        d -= timedelta(days=1)
-    while d.weekday() >= 5:
-        d -= timedelta(days=1)
-    return d
+        dt -= timedelta(days=1)
+    while dt.weekday() >= 5:
+        dt -= timedelta(days=1)
+    return dt
 
 days = ['一','二','三','四','五','六','日']
 

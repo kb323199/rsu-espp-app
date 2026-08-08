@@ -286,7 +286,7 @@ def fetch_usd_twd_rate(symbol, target_date):
             return fetch_usd_twd_rate_for_today(), "台灣銀行本行買入"
         except Exception:
             pass
-    price, actual_date = fetch_yahoo_close_price(symbol, target_date)
+    price, _actual_date = fetch_yahoo_close_price(symbol, target_date)
     return price, "Yahoo 匯率"
 
 
